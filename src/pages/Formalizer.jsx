@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { PenTool, Copy, Check } from "lucide-react";
+import { useState, useEffect } from "react";
+import { PenTool, Copy, Check, Volume2, StopCircle, Settings2 } from "lucide-react"; // Added Icons
 import ReactMarkdown from "react-markdown";
 
 import { ToolLayout } from "../components/layout/ToolLayout";
@@ -10,6 +10,7 @@ import VoiceTypingButton from "../components/ui/VoiceTypingButton";
 import { useApiKey } from "../hooks/useApiKey";
 import { generateText } from "../services/gemini";
 import { PROMPTS } from "../services/prompts";
+import useBrowserTTS from "../hooks/useBrowserTTS"; // Import TTS Hook
 
 const TONES = [
   "Professional",
@@ -30,7 +31,23 @@ export function Formalizer() {
   const [tone, setTone] = useState("Professional");
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  
+  // Voice Settings State
+  const [showVoiceSettings, setShowVoiceSettings] = useState(false);
+  const [pitch, setPitch] = useState(1); // 0.5 to 2
+  const [rate, setRate] = useState(1);   // 0.5 to 2
+
   const { apiKey } = useApiKey();
+  
+  // Initialize TTS Hook
+  const { speak, cancel, isSpeaking, updateSettings } = useBrowserTTS();
+
+  // Real-time Voice Update Effect
+  useEffect(() => {
+    if (isSpeaking) {
+      updateSettings({ pitch, rate });
+    }
+  }, [pitch, rate]);
 
   const handleFormalize = async () => {
     if (!apiKey) {
@@ -40,6 +57,8 @@ export function Formalizer() {
     if (!input.trim()) return;
 
     setLoading(true);
+    if (isSpeaking) cancel(); // Stop previous speech
+
     try {
       const prompt = PROMPTS.formalizer(input, tone);
       const response = await generateText(prompt, apiKey);
@@ -58,10 +77,18 @@ export function Formalizer() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // 🎤 Voice typing append
   const handleVoiceText = (spokenText) => {
     if (!spokenText) return;
     setInput((prev) => (prev ? `${prev} ${spokenText}` : spokenText));
+  };
+
+  const cleanMarkdown = (text) => {
+    if (!text) return "";
+    return text.replace(/[*#_`]/g, "").replace(/\[(.*?)\]\(.*?\)/g, "$1").replace(/\n/g, ". "); 
+  };
+
+  const handleSpeak = () => {
+    speak(cleanMarkdown(output), { pitch, rate });
   };
 
   return (
@@ -94,7 +121,10 @@ export function Formalizer() {
 
             <button
               type="button"
-              onClick={() => setInput("")}
+              onClick={() => {
+                setInput("");
+                if(isSpeaking) cancel();
+              }}
               className="text-sm px-3 py-2 rounded border border-rose-200 dark:border-rose-800 hover:bg-rose-50 dark:hover:bg-rose-900/20"
             >
               Clear
@@ -126,26 +156,83 @@ export function Formalizer() {
         </div>
 
         {output && (
-          <div className="space-y-2 animate-fade-in">
+          <div className="space-y-2 animate-fade-in relative">
             <div className="flex items-center justify-between">
               <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
                 Result
               </label>
 
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={copyToClipboard}
-                className={copied ? "text-emerald-500" : ""}
-              >
-                {copied ? (
-                  <Check className="w-4 h-4 mr-1" />
-                ) : (
-                  <Copy className="w-4 h-4 mr-1" />
-                )}
-                {copied ? "Copied" : "Copy"}
-              </Button>
+              <div className="flex items-center gap-2">
+                {/* --- Voice Controls --- */}
+                <button
+                  onClick={() => setShowVoiceSettings(!showVoiceSettings)}
+                  className={`p-1.5 rounded-md transition-colors ${
+                    showVoiceSettings ? "bg-rose-100 text-rose-600" : "text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                  }`}
+                  title="Voice Settings"
+                >
+                  <Settings2 size={16} />
+                </button>
+
+                <button
+                  onClick={() => isSpeaking ? cancel() : handleSpeak()}
+                  className={`p-1.5 rounded-md transition-colors ${
+                    isSpeaking 
+                      ? "bg-rose-100 text-rose-600 animate-pulse" 
+                      : "text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                  }`}
+                  title={isSpeaking ? "Stop" : "Read Aloud"}
+                >
+                  {isSpeaking ? <StopCircle size={16} /> : <Volume2 size={16} />}
+                </button>
+                {/* --------------------- */}
+
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={copyToClipboard}
+                  className={copied ? "text-emerald-500" : ""}
+                >
+                  {copied ? (
+                    <Check className="w-4 h-4 mr-1" />
+                  ) : (
+                    <Copy className="w-4 h-4 mr-1" />
+                  )}
+                  {copied ? "Copied" : "Copy"}
+                </Button>
+              </div>
             </div>
+
+            {/* Hidden Settings Panel */}
+            {showVoiceSettings && (
+              <div className="absolute top-8 right-0 z-10 p-4 w-48 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-rose-100 dark:border-slate-700 animate-in fade-in slide-in-from-top-2">
+                <div className="space-y-3">
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
+                      <span>Speed</span>
+                      <span>{rate}x</span>
+                    </div>
+                    <input 
+                      type="range" min="0.5" max="2" step="0.1" 
+                      value={rate} onChange={(e) => setRate(parseFloat(e.target.value))}
+                      className="w-full h-1 bg-rose-200 rounded-lg appearance-none cursor-pointer accent-rose-500"
+                    />
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
+                      <span>Pitch</span>
+                      <span>{pitch}</span>
+                    </div>
+                    <input 
+                      type="range" min="0.5" max="2" step="0.1" 
+                      value={pitch} onChange={(e) => setPitch(parseFloat(e.target.value))}
+                      className="w-full h-1 bg-rose-200 rounded-lg appearance-none cursor-pointer accent-rose-500"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 min-h-[100px] prose dark:prose-invert max-w-none">
               <ReactMarkdown>{output}</ReactMarkdown>
